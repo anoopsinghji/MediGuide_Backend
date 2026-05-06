@@ -20,9 +20,21 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+const normalizeOrigin = (origin = '') => {
+  const raw = String(origin || '').trim();
+  if (!raw) return '';
+
+  try {
+    // Normalize protocol/host/port and ignore trailing path/slash differences.
+    return new URL(raw).origin;
+  } catch (_err) {
+    return raw.replace(/\/+$/, '');
+  }
+};
+
 const allowedOrigins = String(process.env.CORS_ORIGIN || '')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
 const isOriginAllowed = (origin) => {
@@ -32,7 +44,7 @@ const isOriginAllowed = (origin) => {
   // Keep development permissive if CORS_ORIGIN is not configured.
   if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') return true;
 
-  return allowedOrigins.includes(origin);
+  return allowedOrigins.includes(normalizeOrigin(origin));
 };
 
 const corsOptions = {

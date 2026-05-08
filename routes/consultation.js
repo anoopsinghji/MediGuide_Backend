@@ -33,6 +33,39 @@ async function getConsultationAccess(appointment, userId) {
   };
 }
 
+function resolveSignalingBaseUrl(req) {
+  const forwardedProtoHeader = req.get('x-forwarded-proto');
+  const forwardedHostHeader = req.get('x-forwarded-host');
+  const forwardedProto = forwardedProtoHeader ? forwardedProtoHeader.split(',')[0].trim() : null;
+  const forwardedHost = forwardedHostHeader ? forwardedHostHeader.split(',')[0].trim() : null;
+  const requestProtocol = forwardedProto || req.protocol || 'http';
+  const requestHost = forwardedHost || req.get('host');
+  const requestBaseUrl = `${requestProtocol}://${requestHost}`;
+
+  const configuredUrl = process.env.SIGNALING_URL?.trim();
+  if (!configuredUrl) {
+    return requestBaseUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(configuredUrl);
+    const isLoopbackHost = /localhost|127\.0\.0\.1/i.test(parsedUrl.hostname);
+    const isSecureRequest = requestProtocol === 'https';
+
+    if (isLoopbackHost && isSecureRequest) {
+      return requestBaseUrl;
+    }
+
+    if (isSecureRequest && (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'ws:')) {
+      parsedUrl.protocol = parsedUrl.protocol === 'ws:' ? 'wss:' : 'https:';
+    }
+
+    return parsedUrl.toString().replace(/\/$/, '');
+  } catch (_error) {
+    return requestBaseUrl;
+  }
+}
+
 async function bootstrapWebRTCConsultation(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.appointmentId);
@@ -74,15 +107,7 @@ async function bootstrapWebRTCConsultation(req, res) {
       await appointment.save();
     }
 
-    const forwardedProtoHeader = req.get('x-forwarded-proto');
-    const forwardedHostHeader = req.get('x-forwarded-host');
-    const forwardedProto = forwardedProtoHeader ? forwardedProtoHeader.split(',')[0].trim() : null;
-    const forwardedHost = forwardedHostHeader ? forwardedHostHeader.split(',')[0].trim() : null;
-    const requestProtocol = req.protocol;
-    const requestHost = req.get('host');
-
-    const signalingBaseUrl = process.env.SIGNALING_URL
-      || (forwardedHost ? `${forwardedProto || 'https'}://${forwardedHost}` : `${requestProtocol}://${requestHost}`);
+    const signalingBaseUrl = resolveSignalingBaseUrl(req);
     const socketPath = process.env.SOCKET_IO_PATH || '/socket.io';
 
     return res.json({
